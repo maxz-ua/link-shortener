@@ -14,20 +14,22 @@ import (
 )
 
 type Request struct {
-	Url   string `json:"url" validate:"required, url"`
+	Url   string `json:"url" validate:"required,url"`
 	Alias string `json:"alias,omitempty"`
 }
 
 type Response struct {
 	response.Response
 	Alias string `json:"alias,omitempty"`
+	ID    int64  `json:"id,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // ref to conf
 const aliasLength = 6
 
 type URLSaver interface {
-	SaveURL(URL string, alias string) (int, error)
+	SaveURL(URL string, alias string) (int64, error)
 }
 
 func New(log *slog.Logger, UrlSaver URLSaver) http.HandlerFunc {

@@ -42,7 +42,7 @@ func New(storagePath string) (*Storage, error) {
 	return &Storage{DB: db}, nil
 }
 
-func (s *Storage) SaveURL(URL string, alias string) (int, error) {
+func (s *Storage) SaveURL(URL string, alias string) (int64, error) {
 	const op = "storage.sqlite.SaveLink"
 	stmt, err := s.DB.Prepare("INSERT INTO links (url, alias) VALUES (?, ?)")
 	if err != nil {
@@ -59,7 +59,7 @@ func (s *Storage) SaveURL(URL string, alias string) (int, error) {
 		return 0, fmt.Errorf("%s: failed to get id %w", op, err)
 	}
 
-	return int(id), nil
+	return int64(id), nil
 }
 
 func (s *Storage) GetURL(alias string) (string, error) {
@@ -86,17 +86,15 @@ func (s *Storage) DeleteURL(alias string) error {
 	const op = "storage.sqlite.DeleteLink"
 
 	// Check if the alias exists before trying to delete
-	var count int
+	var count int64
 	err := s.DB.QueryRow("SELECT COUNT(*) FROM links WHERE alias = ?", alias).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
-
 	// If the alias does not exist, return an error
 	if count == 0 {
 		return fmt.Errorf("%s: %w", op, storage.ErrURLNotFound)
 	}
-
 	// Perform the deletion
 	_, err = s.DB.Exec("DELETE FROM links WHERE alias = ?", alias)
 	if err != nil {

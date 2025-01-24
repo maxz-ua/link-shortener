@@ -4,6 +4,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"link-shortener/internal/config"
+	"link-shortener/internal/http-server/handlers/delete"
+	"link-shortener/internal/http-server/handlers/redirect"
 	"link-shortener/internal/http-server/handlers/url/save"
 	"link-shortener/internal/lib/logger/sl"
 	"link-shortener/internal/storage/sqlite"
@@ -40,7 +42,6 @@ func main() {
 	log.Info("starting link-shortener")
 
 	storage, err := sqlite.New(cfg.StoragePath)
-
 	if err != nil {
 		log.Error("error opening storage", sl.Err(err))
 		os.Exit(1)
@@ -56,7 +57,18 @@ func main() {
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.URLFormat)
 
+	router.Route("/url", func(r chi.Router) {
+		r.Use(middleware.BasicAuth("link-shortener", map[string]string{
+			cfg.HTTPServer.User: cfg.HTTPServer.Password,
+		}))
+
+		r.Post("/", save.New(log, storage))
+		r.Delete("/", delete.New(log, storage))
+	})
+
 	router.Post("/url", save.New(log, storage))
+	router.Get("/{alias}", redirect.New(log, storage))
+	router.Delete("/url/{alias}", delete.New(log, storage))
 
 	log.Info("starting server", slog.String("address", cfg.Address))
 

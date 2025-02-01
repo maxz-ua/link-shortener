@@ -1,0 +1,15 @@
+[Unit]
+Description=Link Shortener
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/apps/link-shortener
+ExecStart=/root/apps/link-shortener/link-shortener
+Restart=always
+RestartSec=4
+StandardOutput=inherit
+EnvironmentFile=/root/apps/link-shortener/config.env
+
+[Install]
+WantedBy=multi-user.target

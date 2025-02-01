@@ -4,14 +4,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"link-shortener/internal/config"
-	"link-shortener/internal/http-server/handlers/delete"
 	"link-shortener/internal/http-server/handlers/redirect"
+	"link-shortener/internal/http-server/handlers/url/delete"
 	"link-shortener/internal/http-server/handlers/url/save"
+	mwLogger "link-shortener/internal/http-server/middleware/logger"
 	"link-shortener/internal/lib/logger/sl"
 	"link-shortener/internal/storage/sqlite"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	_ "time"
 )
 
@@ -25,21 +28,13 @@ func main() {
 
 	cfg := config.MustLoadConfig()
 
-	// Validate environment variable
-	validEnvs := map[string]bool{
-		envLocal: true,
-		envDev:   true,
-		envProd:  true,
-	}
-
-	if !validEnvs[cfg.Env] {
-		println("Invalid environment configuration:", cfg.Env)
-		println("Expected one of: local, dev, or prod.")
-		os.Exit(1)
-	}
-
 	log := setupLogger(cfg.Env)
-	log.Info("starting link-shortener")
+
+	log.Info(
+		"starting link-shortener",
+		slog.String("env", cfg.Env),
+	)
+	log.Debug("debug messages are enabled")
 
 	storage, err := sqlite.New(cfg.StoragePath)
 	if err != nil {
@@ -49,11 +44,11 @@ func main() {
 		log.Info("storage opened successfully")
 	}
 
-	_ = storage
-
 	router := chi.NewRouter()
+
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Logger)
+	router.Use(mwLogger.New(log))
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.URLFormat)
 
@@ -63,14 +58,17 @@ func main() {
 		}))
 
 		r.Post("/", save.New(log, storage))
-		r.Delete("/", delete.New(log, storage))
+		r.Delete("/{id}", delete.New(log, storage)) // Delete by ID
 	})
 
-	router.Post("/url", save.New(log, storage))
 	router.Get("/{alias}", redirect.New(log, storage))
-	router.Delete("/url/{alias}", delete.New(log, storage))
 
 	log.Info("starting server", slog.String("address", cfg.Address))
+
+	// add
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	// -
 
 	srv := &http.Server{
 		Addr:              cfg.Address,
@@ -100,6 +98,10 @@ func setupLogger(env string) *slog.Logger {
 			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}),
 		)
 	case envProd:
+		log = slog.New(
+			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		)
+	default: // Set prod settings by default due to security
 		log = slog.New(
 			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
 		)

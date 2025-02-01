@@ -5,16 +5,18 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
 	"github.com/go-playground/validator/v10"
+	"io"
 	"link-shortener/internal/lib/api/response"
 	"link-shortener/internal/lib/logger/sl"
 	"link-shortener/internal/lib/random"
 	"link-shortener/internal/storage"
 	"log/slog"
 	"net/http"
+	"regexp"
 )
 
 type Request struct {
-	Url   string `json:"url" validate:"required,url"`
+	URL   string `json:"url" validate:"required,url"`
 	Alias string `json:"alias,omitempty"`
 }
 
@@ -32,7 +34,7 @@ type URLSaver interface {
 	SaveURL(URL string, alias string) (int64, error)
 }
 
-func New(log *slog.Logger, UrlSaver URLSaver) http.HandlerFunc {
+func New(log *slog.Logger, urlSaver URLSaver) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const op = "handlers.url.save.New"
 
@@ -44,8 +46,14 @@ func New(log *slog.Logger, UrlSaver URLSaver) http.HandlerFunc {
 		var req Request
 
 		err := render.DecodeJSON(r.Body, &req)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty")
+			render.JSON(w, r, response.Error("empty request"))
+			return
+		}
+
 		if err != nil {
-			log.Error("failed to parse request", sl.Err(err))
+			log.Error("failed to parse request body", sl.Err(err))
 			render.JSON(w, r, response.Error("failed to decode request"))
 			return
 		}
@@ -60,31 +68,40 @@ func New(log *slog.Logger, UrlSaver URLSaver) http.HandlerFunc {
 			return
 		}
 
-		//TODO add double check
+		// Alias validation: ensure no special characters
+		if req.Alias != "" && !isValidAlias(req.Alias) {
+			log.Info("invalid alias", slog.String("alias", req.Alias))
+			render.JSON(w, r, response.Error("invalid alias (special characters not allowed)"))
+			return
+		}
+
 		alias := req.Alias
 		if alias == "" {
 			alias = random.NewRandomString(aliasLength)
 		}
 
-		id, err := UrlSaver.SaveURL(req.Url, alias)
+		id, err := urlSaver.SaveURL(req.URL, alias)
 		if errors.Is(err, storage.ErrURLExist) {
-			log.Info("url already exists", slog.String("url", req.Url))
-			render.JSON(w, r, response.Error("url already exist"))
+			log.Info("url already exists", slog.String("url", req.URL))
+			render.JSON(w, r, response.Error("url already exists"))
 			return
 		}
-		if err != nil {
-			log.Error("failed to save url", sl.Err(err))
-			render.JSON(w, r, response.Error("failed to save url"))
-			return
-		}
-		log.Info("url saved", slog.Int64("id", int64(id)))
-		responseOK(w, r, alias)
+		log.Info("url saved", slog.Int64("id", id))
+		responseOK(w, r, alias, id)
 	}
 }
 
-func responseOK(w http.ResponseWriter, r *http.Request, alias string) {
+// Sends a successful response with a custom JSON payload.
+func responseOK(w http.ResponseWriter, r *http.Request, alias string, id int64) {
 	render.JSON(w, r, Response{
 		Response: response.OK(),
 		Alias:    alias,
+		ID:       id,
 	})
+}
+
+// Custom validation for the alias to only allow alphanumeric characters, hyphens, and underscores
+func isValidAlias(alias string) bool {
+	re := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	return re.MatchString(alias)
 }

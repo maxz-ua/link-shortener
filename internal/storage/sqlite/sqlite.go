@@ -82,23 +82,26 @@ func (s *Storage) GetURL(alias string) (string, error) {
 	return resUrl, nil
 }
 
-func (s *Storage) DeleteURL(alias string) error {
-	const op = "storage.sqlite.DeleteLink"
+func (s *Storage) DeleteURL(urlID int64) error {
+	const op = "storage.sqlite.DeleteURL"
 
-	// Check if the alias exists before trying to delete
-	var count int64
-	err := s.DB.QueryRow("SELECT COUNT(*) FROM links WHERE alias = ?", alias).Scan(&count)
+	stmt, err := s.DB.Prepare("DELETE FROM links WHERE id = ?")
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
-	// If the alias does not exist, return an error
-	if count == 0 {
-		return fmt.Errorf("%s: %w", op, storage.ErrURLNotFound)
-	}
-	// Perform the deletion
-	_, err = s.DB.Exec("DELETE FROM links WHERE alias = ?", alias)
+
+	res, err := stmt.Exec(urlID)
 	if err != nil {
-		return fmt.Errorf("%s: delete failed: %w", op, err)
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	if n == 0 {
+		return fmt.Errorf("%s: %w", op, storage.ErrURLNotFound)
 	}
 
 	return nil
